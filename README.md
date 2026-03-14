@@ -4,7 +4,8 @@
 Branch names and corresponding architecture:
 - main: Transformer Encoder
 - CNN: Convolutional Neural Network
-
+- Katelyn-CNNGRU-Hybrid: CNN + GRU Hybrid
+- LSTM: Long Short-Term Memory Encoder
 
 
  **Note that the rest of the README is from the original repo and we encourage you to take a look at their work.**
