@@ -240,6 +240,7 @@ class TDSFullyConnectedBlock(nn.Module):
         return self.layer_norm(x)  # TNC
 
 
+
 class TDSConvEncoder(nn.Module):
     """A time depth-separable convolutional encoder composing a sequence
     of `TDSConv2dBlock` and `TDSFullyConnectedBlock` as per
@@ -278,3 +279,120 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+
+class CNNRNNEncoder(nn.Module):
+    # 1D -> bidirectionanl GRU -> need back to output for decoding
+
+    def __init__(
+        self,
+        num_features: int, # for T, N, num_features
+        cnn_channels: Sequence[int] = (128, 256), # expand channel for depth
+        # cnn_kernel_size: int = 32,
+        cnn_kernel_size: int = 5,
+        # padding 0 by default
+        rnn_hidden_size: int = 256, #lowkey guessed
+        rnn_num_layers: int = 2,
+        rnn_dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+
+        """
+        from baseline class:
+        tds_conv_blocks: list[nn.Module] = []
+        for channels in block_channels:
+            assert (
+                num_features % channels == 0
+            ), "block_channels must evenly divide num_features"
+            tds_conv_blocks.extend(
+                [
+                    TDSConv2dBlock(channels, num_features // channels, kernel_width),
+                    TDSFullyConnectedBlock(num_features),
+                ]
+            )
+        self.tds_conv_blocks = nn.Sequential(*tds_conv_blocks)
+        """
+
+
+
+        """
+        Args:
+        in_channels (int): Number of channels in the input image
+        out_channels (int): Number of channels produced by the convolution
+        kernel_size (int or tuple): Size of the convolving kernel
+        stride (int or tuple, optional): Stride of the convolution. Default: 1
+        padding (int, tuple or str, optional): Padding added to both sides of
+            the input. Default: 0
+        dilation (int or tuple, optional): Spacing between kernel
+            elements. Default: 1
+        groups (int, optional): Number of blocked connections from input
+            channels to output channels. Default: 1
+        bias (bool, optional): If ``True``, adds a learnable bias to the
+            output. Default: ``True``
+        padding_mode (str, optional): ``'zeros'``, ``'reflect'``,
+            ``'replicate'`` or ``'circular'``. Default: ``'zeros'``
+        """
+        # CNN
+        cnn_layers: list[nn.Module] = []
+        in_ch = num_features
+        for out_ch in cnn_channels: #(128,256)
+            cnn_layers.extend(
+                [nn.Conv1d(in_channels=in_ch, out_channels=out_ch, kernel_size=cnn_kernel_size, padding=0),
+                nn.BatchNorm1d(out_ch), #before relu like we did for hw assignments
+                nn.ReLU(),
+                nn.Dropout(0.1),])
+            in_ch = out_ch # 768 -> 128 -> 256
+            
+        self.cnn = nn.Sequential(*cnn_layers)
+
+
+        """
+        Args:
+        input_size: The number of expected features in the input `x`
+        hidden_size: The number of features in the hidden state `h`
+        num_layers: Number of recurrent layers. E.g., setting ``num_layers=2``
+            would mean stacking two GRUs together to form a `stacked GRU`,
+            with the second GRU taking in outputs of the first GRU and
+            computing the final results. Default: 1
+        bias: If ``False``, then the layer does not use bias weights `b_ih` and `b_hh`.
+            Default: ``True``
+        batch_first: If ``True``, then the input and output tensors are provided
+            as `(batch, seq, feature)` instead of `(seq, batch, feature)`.
+            Note that this does not apply to hidden or cell states. See the
+            Inputs/Outputs sections below for details.  Default: ``False``
+        dropout: If non-zero, introduces a `Dropout` layer on the outputs of each
+            GRU layer except the last layer, with dropout probability equal to
+            :attr:`dropout`. Default: 0
+        bidirectional: If ``True``, becomes a bidirectional GRU. Default: ``False``
+        """
+        # bi GRU
+        self.rnn = nn.GRU(
+            input_size=in_ch,
+            # input_size =out_ch,
+            hidden_size = rnn_hidden_size,
+            num_layers = rnn_num_layers,
+            batch_first=False,  # expects T, N, features
+            dropout = rnn_dropout if rnn_num_layers > 1 else 0.0,
+            bidirectional=True,
+        )
+
+        # back to num_features 768
+        self.output_proj = nn.Linear(rnn_hidden_size * 2, num_features)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # CNN FIRST
+        # T, N, num_features -> N, num_features, T 
+        # 0  1  2
+        x = inputs.permute(1, 2, 0)
+        x = self.cnn(x) 
+
+        # RNN
+        x = x.permute(2, 0, 1).contiguous()  # need T,N,num_features back
+        # Disable cuDNN for GRU to avoid CUDNN_STATUS_NOT_SUPPORTED on long sequences
+        with torch.backends.cudnn.flags(enabled=False):
+            x, _ = self.rnn(x)  
+
+        # PROJECT
+        x = self.output_proj(x)
+
+        return x

@@ -13,8 +13,23 @@ from typing import Any
 
 import hydra
 import pytorch_lightning as pl
+import torch
 from hydra.utils import get_original_cwd, instantiate
 from omegaconf import DictConfig, ListConfig, OmegaConf
+
+# Keep getting error when loading checkpoint?? this seems to work for now
+from omegaconf import DictConfig as OmegaDictConfig
+from omegaconf.listconfig import ListConfig as OmegaListConfig
+
+torch.serialization.add_safe_globals([OmegaDictConfig, OmegaListConfig])
+
+_original_torch_load = torch.load
+def _patched_torch_load(f, *args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _original_torch_load(f, *args, **kwargs)
+torch.load = _patched_torch_load
+
+
 
 from emg2qwerty import transforms, utils
 from emg2qwerty.transforms import Transform
