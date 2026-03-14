@@ -24,7 +24,7 @@ Branch names and corresponding architecture:
 - LSTM: Long Short-Term Memory Encoder
 
 
- **Note that the rest of the README is from the original repo and we encourage you to take a look at their work.**
+ **Note that the rest of the README is from the original repo.**
 
 
 # emg2qwerty
