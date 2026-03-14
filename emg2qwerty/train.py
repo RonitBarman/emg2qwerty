@@ -11,10 +11,19 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import torch
 import hydra
 import pytorch_lightning as pl
 from hydra.utils import get_original_cwd, instantiate
 from omegaconf import DictConfig, ListConfig, OmegaConf
+
+# PyTorch 2.6+ defaults torch.load to weights_only=True, but Lightning
+# checkpoints contain omegaconf objects that aren't allowlisted.
+# Monkey-patch torch.load to use weights_only=False for our own trusted checkpoints.
+_original_torch_load = torch.load
+torch.load = lambda *args, **kwargs: _original_torch_load(
+    *args, **{**kwargs, "weights_only": kwargs.get("weights_only", False)}
+)
 
 from emg2qwerty import transforms, utils
 from emg2qwerty.transforms import Transform
