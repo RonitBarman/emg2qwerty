@@ -1,6 +1,22 @@
 # C147/247 Final Project
 ### Winter 2026 
 
+## Abstract
+Surface electromyography (sEMG) is a non-invasive technique for recording and
+measuring muscle electrical activity and action potentials. In this application, we
+explore mapping signals from wrist EMG sensors to keystroke intent using neural
+networks. We systematically evaluate four architectures: a convolutional neural
+network (CNN), a bidirectional Long Short-Term Memory (LSTM) network, a
+hybrid CNN and Gated Recurrent Unit (GRU), and a Transformer. Each model
+utilizes a shared MLP preprocessing frontend to isolate the impact of the different
+encoding methods. We train the models to minimize Connectionist Temporal
+Classification (CTC) loss using data from a single user in the emg2qwerty dataset.
+Evaluating the Character Error Rate (CER) through greedy decoding, our results
+show that the CNN-GRU hybrid achieves the lowest test CER of 14.50%, followed
+by the LSTM (15.45%), CNN (22.45%), and Transformer (22.87%). These findings
+indicate that local feature extraction followed by recurrent modeling is the most
+effective approach for this type of complex, unsegmented sequential data.
+
 Branch names and corresponding architecture:
 - main: Transformer Encoder
 - CNN: Convolutional Neural Network
