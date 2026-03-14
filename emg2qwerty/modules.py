@@ -239,6 +239,82 @@ class TDSFullyConnectedBlock(nn.Module):
         x = x + inputs
         return self.layer_norm(x)  # TNC
 
+class TransformerEncoder(nn.Module):
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int = 4,
+        layers: int = 2,
+        drop_prob: float = 0.1,
+        max_len: int = 4096,
+        dim_feedforward: int | None = None,
+    ) -> None:
+        super().__init__()
+        assert embed_dim > 0
+        assert num_heads > 0
+        assert layers > 0
+        assert embed_dim % num_heads == 0
+
+        self.embed_dim = embed_dim
+        self.max_len = max_len
+        self.dropout = nn.Dropout(drop_prob)
+
+        pe = torch.zeros(max_len, embed_dim)
+        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, embed_dim, 2, dtype=torch.float32)
+            * (-torch.log(torch.tensor(10000.0)) / embed_dim)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("positional_encoding", pe.unsqueeze(1), persistent=False)
+
+        ff_dim = dim_feedforward if dim_feedforward is not None else 4 * embed_dim
+        self.transformer = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model=embed_dim,
+                nhead=num_heads,
+                dim_feedforward=ff_dim,
+                norm_first=True,
+                dropout=drop_prob,
+                batch_first=False,
+            ),
+            num_layers=layers,
+        )
+
+    def _padding_mask(
+        self,
+        time_steps: int,
+        batch_size: int,
+        input_lengths: torch.Tensor,
+        device: torch.device,
+    ) -> torch.Tensor:
+        lengths = input_lengths.to(device=device, dtype=torch.long)
+        assert lengths.shape == (batch_size,)
+        t = torch.arange(time_steps, device=device).unsqueeze(0)
+        return t >= lengths.unsqueeze(1)
+
+    def forward(
+        self,
+        inputs: torch.Tensor,
+        input_lengths: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        T, N, C = inputs.shape
+        assert C == self.embed_dim, (
+            f"Expected inputs with embed_dim={self.embed_dim}, got {C}"
+        )
+        assert (
+            T <= self.max_len
+        ), f"Sequence length {T} exceeds max_len={self.max_len}"
+
+        x = inputs + self.positional_encoding[:T].to(dtype=inputs.dtype)
+        x = self.dropout(x)
+
+        src_key_padding_mask = None
+        if input_lengths is not None:
+            src_key_padding_mask = self._padding_mask(T, N, input_lengths, inputs.device)
+
+        return self.transformer(x, src_key_padding_mask=src_key_padding_mask)
 
 class TDSConvEncoder(nn.Module):
     """A time depth-separable convolutional encoder composing a sequence
